@@ -10,15 +10,16 @@ class ContractingBlock(nn.Module):
     Values:
         input_channels: the number of channels to expect from a given input
     '''
-    def __init__(self, input_channels, use_dropout=False, use_bn=True):
+    def __init__(self, input_channels, use_dropout=False, use_bn=True, double_channel=True):
         super(ContractingBlock, self).__init__()
-        self.conv1 = nn.Conv2d(input_channels, input_channels * 2, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(input_channels * 2, input_channels * 2, kernel_size=3, padding=1)
-        # self.activation = nn.LeakyReLU(0.2)
-        self.activation = nn.ReLU(inplace=True)
+        factor = 2 if double_channel else 1
+        self.conv1 = nn.Conv2d(input_channels, input_channels * factor, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(input_channels * factor, input_channels * factor, kernel_size=3, padding=1)
+        self.activation = nn.LeakyReLU(0.2)
+        # self.activation = nn.ReLU()
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
         if use_bn:
-            self.batchnorm = nn.BatchNorm2d(input_channels * 2)
+            self.batchnorm = nn.BatchNorm2d(input_channels * factor)
         self.use_bn = use_bn
         if use_dropout:
             self.dropout = nn.Dropout()
@@ -63,8 +64,7 @@ class ExpandingBlock(nn.Module):
         if use_bn:
             self.batchnorm = nn.BatchNorm2d(input_channels // 2)
         self.use_bn = use_bn
-        # self.activation = nn.ReLU()
-        self.activation = nn.ReLU(inplace=True)
+        self.activation = nn.ReLU()
         if use_dropout:
             self.dropout = nn.Dropout()
         self.use_dropout = use_dropout
@@ -134,14 +134,14 @@ class UNet(nn.Module):
     def __init__(self, input_channels, output_channels, hidden_channels=32):
         super(UNet, self).__init__()
         self.upfeature = FeatureMapBlock(input_channels, hidden_channels)
-        self.contract1 = ContractingBlock(hidden_channels, use_dropout=True)
-        self.contract2 = ContractingBlock(hidden_channels * 2, use_dropout=True)
-        self.contract3 = ContractingBlock(hidden_channels * 4, use_dropout=True)
+        self.contract1 = ContractingBlock(hidden_channels)
+        self.contract2 = ContractingBlock(hidden_channels * 2)
+        self.contract3 = ContractingBlock(hidden_channels * 4)
         self.contract4 = ContractingBlock(hidden_channels * 8)
-        self.contract5 = ContractingBlock(hidden_channels * 16)
-        self.contract6 = ContractingBlock(hidden_channels * 32)
-        self.expand0 = ExpandingBlock(hidden_channels * 64)
-        self.expand1 = ExpandingBlock(hidden_channels * 32)
+        # self.contract5 = ContractingBlock(hidden_channels * 16)
+        # self.contract6 = ContractingBlock(hidden_channels * 32)
+        # self.expand0 = ExpandingBlock(hidden_channels * 64)
+        # self.expand1 = ExpandingBlock(hidden_channels * 32)
         self.expand2 = ExpandingBlock(hidden_channels * 16)
         self.expand3 = ExpandingBlock(hidden_channels * 8)
         self.expand4 = ExpandingBlock(hidden_channels * 4)
@@ -161,11 +161,11 @@ class UNet(nn.Module):
         x2 = self.contract2(x1)
         x3 = self.contract3(x2)
         x4 = self.contract4(x3)
-        x5 = self.contract5(x4)
+        # x5 = self.contract5(x4)
         # x6 = self.contract6(x5)
         # xn = self.expand0(x6, x5)
-        xn = self.expand1(x5, x4)
-        xn = self.expand2(xn, x3)
+        # xn = self.expand1(x5, x4)
+        xn = self.expand2(x4, x3)
         xn = self.expand3(xn, x2)
         xn = self.expand4(xn, x1)
         xn = self.expand5(xn, x0)
@@ -181,24 +181,26 @@ class Discriminator(nn.Module):
     Parameters:
         input_channels: the number of image input channels
         hidden_channels: the initial number of discriminator convolutional filters
+        level: the level of discriminator contraction layers, corresponds to the
+               size of PatchGAN
     '''
-    def __init__(self, input_channels, hidden_channels=8):
+    def __init__(self, input_channels, hidden_channels=32, level=4):
         super(Discriminator, self).__init__()
         self.upfeature = FeatureMapBlock(input_channels, hidden_channels)
         self.contract1 = ContractingBlock(hidden_channels, use_bn=False)
         self.contract2 = ContractingBlock(hidden_channels * 2)
         self.contract3 = ContractingBlock(hidden_channels * 4)
-        self.contract4 = ContractingBlock(hidden_channels * 8)
-        #### START CODE HERE ####
-        self.final = nn.Conv2d(hidden_channels * 16, 1, kernel_size=1)
-        #### END CODE HERE ####
+        self.contract4 = ContractingBlock(hidden_channels * 8, double_channel=False)
+        self.contract5 = ContractingBlock(hidden_channels * 8, double_channel=False)
+        self.layers = [self.contract1, self.contract2, self.contract3, self.contract4, self.contract5]
+        self.final = nn.Conv2d(hidden_channels * min(2**level, 8), 1, kernel_size=1)
+        self.level = level
+        assert self.level <= len(self.layers)
 
     def forward(self, x, y):
         x = torch.cat([x, y], dim=1)
-        x0 = self.upfeature(x)
-        x1 = self.contract1(x0)
-        x2 = self.contract2(x1)
-        x3 = self.contract3(x2)
-        x4 = self.contract4(x3)
-        xn = self.final(x4)
-        return xn
+        x = self.upfeature(x)
+        for contract_layer in self.layers[:self.level]:
+            x = contract_layer(x)
+        x = self.final(x)
+        return x
