@@ -19,7 +19,8 @@ class ContractingBlock(nn.Module):
         # self.activation = nn.ReLU()
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
         if use_bn:
-            self.batchnorm = nn.BatchNorm2d(input_channels * factor)
+            # self.batchnorm = nn.BatchNorm2d(input_channels * factor)
+            self.batchnorm = nn.InstanceNorm2d(input_channels // 2)
         self.use_bn = use_bn
         if use_dropout:
             self.dropout = nn.Dropout()
@@ -62,7 +63,8 @@ class ExpandingBlock(nn.Module):
         self.conv2 = nn.Conv2d(input_channels, input_channels // 2, kernel_size=3, padding=1)
         self.conv3 = nn.Conv2d(input_channels // 2, input_channels // 2, kernel_size=3, padding=1)
         if use_bn:
-            self.batchnorm = nn.BatchNorm2d(input_channels // 2)
+            # self.batchnorm = nn.BatchNorm2d(input_channels // 2)
+            self.batchnorm = nn.InstanceNorm2d(input_channels // 2)
         self.use_bn = use_bn
         self.activation = nn.ReLU()
         if use_dropout:
@@ -147,7 +149,7 @@ class UNet(nn.Module):
         self.expand4 = ExpandingBlock(hidden_channels * 4)
         self.expand5 = ExpandingBlock(hidden_channels * 2)
         self.downfeature = FeatureMapBlock(hidden_channels, output_channels)
-        self.sigmoid = torch.nn.Sigmoid()
+        self.tanh = nn.Tanh()
 
     def forward(self, x):
         '''
@@ -170,7 +172,7 @@ class UNet(nn.Module):
         xn = self.expand4(xn, x1)
         xn = self.expand5(xn, x0)
         xn = self.downfeature(xn)
-        return self.sigmoid(xn)
+        return self.tanh(xn)
 
 
 class Discriminator(nn.Module):
@@ -187,7 +189,7 @@ class Discriminator(nn.Module):
     def __init__(self, input_channels, hidden_channels=32, level=4):
         super(Discriminator, self).__init__()
         self.upfeature = FeatureMapBlock(input_channels, hidden_channels)
-        self.contract1 = ContractingBlock(hidden_channels, use_bn=False)
+        self.contract1 = ContractingBlock(hidden_channels, use_bn=True)
         self.contract2 = ContractingBlock(hidden_channels * 2)
         self.contract3 = ContractingBlock(hidden_channels * 4)
         self.contract4 = ContractingBlock(hidden_channels * 8, double_channel=False)

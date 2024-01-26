@@ -1,0 +1,30 @@
+data:
+  LOM_folder: train_LOM640
+  SEM_folder: train_SEM640
+  test_LOM_folder: test_LOM640
+  test_SEM_folder: test_SEM640
+  split: all_2.txt
+
+train:
+  input_size: [256, 256]
+  batch_size: 32
+  epochs: 100000
+  gen_lr: 2.e-4
+  disc_lr: 2.e-4
+  max_steps: 9000
+  lr_decay_start: 3000
+  lr_decay_factor: 0.01
+  augmentations:
+    - [RandomHorizontalFlip, {p: 0.5}]
+    - [RandomVerticalFlip, {p: 0.5}]
+    - [MyRotateTransform, {}]
+
+log:
+  display_freq: 500
+  n_row_imgs: 4 # number of images per row
+  log_freq: 50
+
+pix2pix:
+  lambda_recon: 50
+  patch_level: 3
+  adv_loss_type: LS # CE, LS
